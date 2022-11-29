@@ -133,12 +133,9 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
 }
 
 int tfs_sym_link(char const *target, char const *link_name) {
-    (void)target;
-    (void)link_name;
-    // ^ this is a trick to keep the compiler from complaining about unused
-    // variables. TODO: remove
+    
 
-    PANIC("TODO: tfs_sym_link");
+    return 0;
 }
 
 int tfs_link(char const *target, char const *link_name) {
@@ -242,20 +239,20 @@ int tfs_unlink(char const *target) {
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
-    
-    printf("%s\n", source_path);
     FILE * file = fopen(source_path,"r");
     if(file == NULL) return -1;
-    printf("I am here\n");
-    int dest = tfs_open(dest_path, TFS_O_CREAT);
-   
-    void * buffer = NULL;
-    size_t block = tfs_default_params().block_size;
-    size_t size = fread(buffer, block , 1, file);
-    tfs_write(dest, buffer, size);
 
+    int dest = tfs_open(dest_path, TFS_O_CREAT);
+    char buffer[block];
+    memset(buffer, 0, block);
+
+    size_t block = tfs_default_params().block_size;
+    size_t size = fread(&buffer, sizeof(char), block-1, file);
+    tfs_write(dest, &buffer, size);
+    
     tfs_close(dest);
     fclose(file);
+
     return 0;
 }
 
