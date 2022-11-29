@@ -131,20 +131,47 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
     // is an error adding an entry to the open file table, the file is not
     // opened but it remains created
 }
-
+    /**
+     * target = file in the TFS system
+     * link_name = name of the link used
+     * Ao criar um soft link "/path_A/soft_link" para um ficheiro "/path_B/file_name"
+     */
 int tfs_sym_link(char const *target, char const *link_name) {
-    
+    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+    int soft_index = inode_create(T_DIRECTORY);
+
+    inode_t soft_link = inode_get(soft_index);
+
+    soft_link->link = &target;
+
+      if (add_dir_entry(root_dir_inode, link_name + 1, soft_index) == -1) {
+        inode_delete(soft_index);
+        return -1; // no space in directory
+    }
 
     return 0;
 }
 
 int tfs_link(char const *target, char const *link_name) {
-    (void)target;
-    (void)link_name;
-    // ^ this is a trick to keep the compiler from complaining about unused
-    // variables. TODO: remove
+    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+    
+    int hard_index = inode_create(T_DIRECTORY);
 
-    PANIC("TODO: tfs_link");
+    inode_t * hard_link = inode_get(hard_index);
+    int index = tfs_lookup(target, root_dir_inode);
+
+    inode_t * targ = inode_get(index);
+
+    hard_link->link = &targ;
+    //targ->hard_link_count += 1;
+
+
+    if (add_dir_entry(root_dir_inode, link_name + 1, hard_index) == -1) {
+        inode_delete(hard_index);
+        return -1; // no space in directory
+    }
+
+    return 0;
 }
 
 int tfs_close(int fhandle) {
@@ -242,11 +269,12 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
     FILE * file = fopen(source_path,"r");
     if(file == NULL) return -1;
 
+    size_t block = tfs_default_params().block_size;
+
     int dest = tfs_open(dest_path, TFS_O_CREAT);
     char buffer[block];
     memset(buffer, 0, block);
 
-    size_t block = tfs_default_params().block_size;
     size_t size = fread(&buffer, sizeof(char), block-1, file);
     tfs_write(dest, &buffer, size);
     
