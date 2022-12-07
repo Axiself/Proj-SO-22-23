@@ -28,8 +28,9 @@ typedef struct {
     size_t i_size;
     int i_data_block;
 
-    //int hard_link_count;    // hard link count
-    void * link;       // can be a hard or soft link
+    char * name;
+    int hard_link_count;    // hard link count
+    int flag;      // hard=0 or soft=1
     // in a more complete FS, more fields could exist here
 } inode_t;
 

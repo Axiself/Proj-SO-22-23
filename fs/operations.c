@@ -138,13 +138,14 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
      */
 int tfs_sym_link(char const *target, char const *link_name) {
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+
     int soft_index = inode_create(T_DIRECTORY);
+    inode_t * soft_link = inode_get(soft_index);
+    soft_link->flag = 1;
 
-    inode_t soft_link = inode_get(soft_index);
+    memcpy(soft_link->name, target, sizeof(target) + 1);
 
-    soft_link->link = &target;
-
-      if (add_dir_entry(root_dir_inode, link_name + 1, soft_index) == -1) {
+    if (add_dir_entry(root_dir_inode, link_name + 1, soft_index) == -1) {
         inode_delete(soft_index);
         return -1; // no space in directory
     }
@@ -155,19 +156,19 @@ int tfs_sym_link(char const *target, char const *link_name) {
 int tfs_link(char const *target, char const *link_name) {
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     
-    int hard_index = inode_create(T_DIRECTORY);
 
-    inode_t * hard_link = inode_get(hard_index);
     int index = tfs_lookup(target, root_dir_inode);
-
+    if(index < 0) return -1;
     inode_t * targ = inode_get(index);
 
-    hard_link->link = &targ;
-    //targ->hard_link_count += 1;
+    if(targ->hard_link_count == NULL)
+        targ->hard_link_count = 0;
+
+    targ->hard_link_count += 1;
 
 
-    if (add_dir_entry(root_dir_inode, link_name + 1, hard_index) == -1) {
-        inode_delete(hard_index);
+    if (add_dir_entry(root_dir_inode, link_name + 1, targ) == -1) {
+        //inode_delete(targ);
         return -1; // no space in directory
     }
 
