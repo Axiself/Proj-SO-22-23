@@ -73,6 +73,7 @@ static int tfs_lookup(char const *name, inode_t const *root_inode) {
     return find_in_dir(root_inode, name);
 }
 
+// TODO : Hard & Soft link open implementation
 int tfs_open(char const *name, tfs_file_mode_t mode) {
     // Checks if the path name is valid
     if (!valid_pathname(name)) {
@@ -90,6 +91,13 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
         inode_t *inode = inode_get(inum);
         ALWAYS_ASSERT(inode != NULL,
                       "tfs_open: directory files must have an inode");
+
+        // Soft link check
+        if (inode->flag == 1) { 
+            inum = tfs_lookup(inode->name, root_dir_inode);
+            if (inum == -1) return -1;
+            inode = inode_get(inum);
+        }
 
         // Truncate (if requested)
         if (mode & TFS_O_TRUNC) {
@@ -140,34 +148,35 @@ int tfs_sym_link(char const *target, char const *link_name) {
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
 
     int soft_index = inode_create(T_DIRECTORY);
+    
+    if(soft_index < 0) return -1;
+
     inode_t * soft_link = inode_get(soft_index);
     soft_link->flag = 1;
-
-    memcpy(soft_link->name, target, sizeof(target) + 1);
+    soft_link->name = malloc(sizeof(char *));
+    memcpy(soft_link->name, target, strlen(target) + 1);
 
     if (add_dir_entry(root_dir_inode, link_name + 1, soft_index) == -1) {
         inode_delete(soft_index);
         return -1; // no space in directory
     }
-
+    
     return 0;
 }
 
 int tfs_link(char const *target, char const *link_name) {
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
-    
 
-    int index = tfs_lookup(target, root_dir_inode);
-    if(index < 0) return -1;
-    inode_t * targ = inode_get(index);
-
-    if(targ->hard_link_count == NULL)
-        targ->hard_link_count = 0;
+    int idx = tfs_lookup(target, root_dir_inode);
+    if(idx < 0) return -1;
+    inode_t * targ = inode_get(idx);
+    if (targ->flag != 0) return -1;
 
     targ->hard_link_count += 1;
+    //targ->flag = 0; // Hard link by default
 
 
-    if (add_dir_entry(root_dir_inode, link_name + 1, targ) == -1) {
+    if (add_dir_entry(root_dir_inode, link_name + 1, idx) == -1) {
         //inode_delete(targ);
         return -1; // no space in directory
     }
@@ -259,11 +268,32 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_unlink(char const *target) {
-    (void)target;
-    // ^ this is a trick to keep the compiler from complaining about unused
-    // variables. TODO: remove
+    
+    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
 
-    PANIC("TODO: tfs_unlink");
+    int idx = tfs_lookup(target, root_dir_inode);
+    inode_t * node = inode_get(idx);
+
+    if (node->flag == 1)
+        free(node->name);
+    
+
+    if (node->flag == 0 && node->hard_link_count > 0) { 
+        dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(root_dir_inode->i_data_block);
+        size_t max_dir_entries = tfs_default_params().block_size / sizeof(dir_entry_t);
+
+        for (size_t i = 0; i < max_dir_entries && node->hard_link_count > 0; i++) {
+            if (dir_entry[i].d_inumber == idx ) {
+                clear_dir_entry(root_dir_inode, dir_entry[i].d_name);
+                node->hard_link_count -=1;
+            }
+        }
+    }
+    clear_dir_entry(root_dir_inode, target + 1);
+    inode_delete(idx);
+    
+
+    return 0;
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
@@ -284,4 +314,3 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 
     return 0;
 }
-
