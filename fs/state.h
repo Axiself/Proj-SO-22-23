@@ -30,7 +30,7 @@ typedef struct {
 
     char * name;
     int hard_link_count;    // hard link count
-    int flag;      // hard=0 or soft=1
+    int flag;      //hard by default = 0 ; soft link = 1 [ devia estar assim mas n esta ]
     // in a more complete FS, more fields could exist here
 } inode_t;
 

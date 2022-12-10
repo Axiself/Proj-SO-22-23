@@ -93,7 +93,7 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
                       "tfs_open: directory files must have an inode");
 
         // Soft link check
-        if (inode->flag == 1) { 
+        if (inode->flag == 2) { 
             inum = tfs_lookup(inode->name, root_dir_inode);
             if (inum == -1) return -1;
             inode = inode_get(inum);
@@ -152,7 +152,7 @@ int tfs_sym_link(char const *target, char const *link_name) {
     if(soft_index < 0) return -1;
 
     inode_t * soft_link = inode_get(soft_index);
-    soft_link->flag = 1;
+    soft_link->flag = 2;
     soft_link->name = malloc(sizeof(char *));
     memcpy(soft_link->name, target, strlen(target) + 1);
 
@@ -170,8 +170,9 @@ int tfs_link(char const *target, char const *link_name) {
     int idx = tfs_lookup(target, root_dir_inode);
     if(idx < 0) return -1;
     inode_t * targ = inode_get(idx);
-    if (targ->flag != 0) return -1;
+    if (targ->flag == 2) return -1;
 
+    targ->flag = 1;
     targ->hard_link_count += 1;
     //targ->flag = 0; // Hard link by default
 
@@ -267,33 +268,46 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     return (ssize_t)to_read;
 }
 
+
+//TODO: File is a hard link by default and init hard link counter with 1
+//TODO: File deleted when hard link counter hits 0
+//Flag = 2 shouldnt exist
+ 
 int tfs_unlink(char const *target) {
     
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
 
     int idx = tfs_lookup(target, root_dir_inode);
+    if (idx < 0) return -1;
     inode_t * node = inode_get(idx);
 
-    if (node->flag == 1)
+    if (node->flag == 2) {
         free(node->name);
+        return clear_dir_entry(root_dir_inode, target + 1);
+    }
     
-
-    if (node->flag == 0 && node->hard_link_count > 0) { 
+    // clears all hard links associated to file
+    if (node->flag == 1) { 
         dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(root_dir_inode->i_data_block);
         size_t max_dir_entries = tfs_default_params().block_size / sizeof(dir_entry_t);
 
         for (size_t i = 0; i < max_dir_entries && node->hard_link_count > 0; i++) {
             if (dir_entry[i].d_inumber == idx ) {
-                clear_dir_entry(root_dir_inode, dir_entry[i].d_name);
+                if(clear_dir_entry(root_dir_inode, dir_entry[i].d_name) == -1)
+                    return -1;
                 node->hard_link_count -=1;
             }
         }
+        node->flag = 0;
+        return 0;
     }
-    clear_dir_entry(root_dir_inode, target + 1);
-    inode_delete(idx);
+    // delete file
+    if (node->flag == 0) {
+        inode_delete(idx);
+        return clear_dir_entry(root_dir_inode, target + 1);
+    }
     
-
-    return 0;
+    return -1;
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
