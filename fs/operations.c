@@ -287,24 +287,12 @@ int tfs_unlink(char const *target) {
         return clear_dir_entry(root_dir_inode, target + 1);
     }
     
-    // clears all hard links associated to file
     if (node->flag == 0) { 
-        dir_entry_t *dir_entry = (dir_entry_t *)data_block_get(root_dir_inode->i_data_block);
-        size_t max_dir_entries = tfs_default_params().block_size / sizeof(dir_entry_t);
-
-        if(node->hard_link_count == 1) {
+        if(node->hard_link_count == 1) 
             inode_delete(idx);
-            return clear_dir_entry(root_dir_inode, target+1);
-        }
-
-        for (size_t i = 0; i < max_dir_entries && node->hard_link_count > 1; i++) {
-            if (dir_entry[i].d_inumber == idx) {
-                if(clear_dir_entry(root_dir_inode, dir_entry[i].d_name) == -1)
-                    return -1;
-                node->hard_link_count -=1;
-            }
-        }
-        return 0;
+            
+        node->hard_link_count--;
+        return clear_dir_entry(root_dir_inode, target+1);
     }
     return -1;
 }
