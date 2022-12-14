@@ -146,8 +146,9 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
      * Ao criar um soft link "/path_A/soft_link" para um ficheiro "/path_B/file_name"
      */
 int tfs_sym_link(char const *target, char const *link_name) {
-    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+    if(!valid_pathname(target) || !valid_pathname(link_name)) return -1;
 
+    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     int soft_index = inode_create(T_DIRECTORY);
     
     if(soft_index < 0) return -1;
@@ -166,6 +167,8 @@ int tfs_sym_link(char const *target, char const *link_name) {
 }
 
 int tfs_link(char const *target, char const *link_name) {
+    if(!valid_pathname(target) || !valid_pathname(link_name)) return -1;
+
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
 
     int idx = tfs_lookup(target, root_dir_inode);
@@ -298,6 +301,7 @@ int tfs_unlink(char const *target) {
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
+    if(!valid_pathname(dest_path)) return -1;
     FILE * file = fopen(source_path,"r");
     if(file == NULL) return -1;
 
