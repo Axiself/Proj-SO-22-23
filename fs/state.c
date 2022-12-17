@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 /*
  * Persistent FS state
@@ -27,6 +28,7 @@ static allocation_state_t *free_blocks;
  */
 static open_file_entry_t *open_file_table;
 static allocation_state_t *free_open_file_entries;
+static pthread_mutex_t open_file_mutex;
 
 // Convenience macros
 #define INODE_TABLE_SIZE (fs_params.max_inode_count)
@@ -99,6 +101,8 @@ int state_init(tfs_params params) {
         return -1; // already initialized
     }
 
+    pthread_mutex_init(&open_file_mutex, NULL);
+
     inode_table = malloc(INODE_TABLE_SIZE * sizeof(inode_t));
     freeinode_ts = malloc(INODE_TABLE_SIZE * sizeof(allocation_state_t));
     fs_data = malloc(DATA_BLOCKS * BLOCK_SIZE);
@@ -146,6 +150,8 @@ int state_destroy(void) {
     free_blocks = NULL;
     open_file_table = NULL;
     free_open_file_entries = NULL;
+
+    pthread_mutex_destroy(&open_file_mutex);
 
     return 0;
 }
@@ -258,12 +264,13 @@ void inode_delete(int inumber) {
 
     ALWAYS_ASSERT(freeinode_ts[inumber] == TAKEN,
                   "inode_delete: inode already freed");
-
+    pthread_mutex_lock(&open_file_mutex);
     if (inode_table[inumber].i_size > 0) {
         data_block_free(inode_table[inumber].i_data_block);
     }
 
     freeinode_ts[inumber] = FREE;
+    pthread_mutex_unlock(&open_file_mutex);
 }
 
 /**
@@ -305,13 +312,17 @@ int clear_dir_entry(inode_t *inode, char const *sub_name) {
     ALWAYS_ASSERT(dir_entry != NULL,
                   "clear_dir_entry: directory must have a data block");
 
+    pthread_mutex_lock(&open_file_mutex);
     for (size_t i = 0; i < MAX_DIR_ENTRIES; i++) {
         if (!strcmp(dir_entry[i].d_name, sub_name)) {
             dir_entry[i].d_inumber = -1;
             memset(dir_entry[i].d_name, 0, MAX_FILE_NAME);
+            pthread_mutex_unlock(&open_file_mutex);
+
             return 0;
         }
     }
+    pthread_mutex_unlock(&open_file_mutex);
     return -1; // sub_name not found
 }
 
@@ -345,17 +356,18 @@ int add_dir_entry(inode_t *inode, char const *sub_name, int sub_inumber) {
     ALWAYS_ASSERT(dir_entry != NULL,
                   "add_dir_entry: directory must have a data block");
 
+    pthread_mutex_lock(&open_file_mutex);
     // Finds and fills the first empty entry
     for (size_t i = 0; i < MAX_DIR_ENTRIES; i++) {
         if (dir_entry[i].d_inumber == -1) {
             dir_entry[i].d_inumber = sub_inumber;
             strncpy(dir_entry[i].d_name, sub_name, MAX_FILE_NAME - 1);
             dir_entry[i].d_name[MAX_FILE_NAME - 1] = '\0';
-
+            pthread_mutex_unlock(&open_file_mutex);
             return 0;
         }
     }
-
+    pthread_mutex_unlock(&open_file_mutex);
     return -1; // no space for entry
 }
 
@@ -466,16 +478,17 @@ void *data_block_get(int block_number) {
  *   - No space in open file table for a new open file.
  */
 int add_to_open_file_table(int inumber, size_t offset) {
+    pthread_mutex_lock(&open_file_mutex);
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (free_open_file_entries[i] == FREE) {
             free_open_file_entries[i] = TAKEN;
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = offset;
-
+            pthread_mutex_unlock(&open_file_mutex);
             return i;
         }
     }
-
+    pthread_mutex_unlock(&open_file_mutex);
     return -1;
 }
 
@@ -486,6 +499,7 @@ int add_to_open_file_table(int inumber, size_t offset) {
  *   - fhandle: file handle to free/close
  */
 void remove_from_open_file_table(int fhandle) {
+    pthread_mutex_lock(&open_file_mutex);
     ALWAYS_ASSERT(valid_file_handle(fhandle),
                   "remove_from_open_file_table: file handle must be valid");
 
@@ -493,6 +507,7 @@ void remove_from_open_file_table(int fhandle) {
                   "remove_from_open_file_table: file handle must be taken");
 
     free_open_file_entries[fhandle] = FREE;
+    pthread_mutex_unlock(&open_file_mutex);
 }
 
 /**
