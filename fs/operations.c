@@ -60,7 +60,7 @@ int tfs_destroy() {
     }
     
     for (int i = 0; i < MAX_INODE_COUNT; i++) { 
-        if (pthread_mutex_destroy(&(operations_rwlock[i])) != 0) return -1;
+        pthread_mutex_destroy(&operations_rwlock[i]);
     }
 
     return 0;
