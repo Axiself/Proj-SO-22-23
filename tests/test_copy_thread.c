@@ -54,55 +54,60 @@ copy_args_t create_args(char * path, char * path_copy, char * content) {
 }
 
 
-int init_threads(pthread_t thread, void * fun, size_t num_threads, copy_args_t args[]) {
-
-
-    if (pthread_create(&thread, NULL, fun, &args) != 0)
-        return -1;
-    
+int init_threads(pthread_t thread[], void * fun, copy_args_t args[]) {
+    for (size_t i = 0; i < NUMBER_OF_THREADS; i++) {
+        if (pthread_create(&thread[i], NULL, fun, &args[i]) != 0)
+            return -1;
+    }    
    
-    if (pthread_join(thread, NULL) != 0) 
-        return -1;
+    for (size_t i = 0; i < NUMBER_OF_THREADS; i++) {
+        if (pthread_join(thread[i], NULL) != 0) 
+            return -1;
+    }
     
     return 0;
     
 }
 
 void assert_loop(copy_args_t args) {
-   
     int f = tfs_open(args.path_copied_file, TFS_O_CREAT);
     assert(f != -1);   
     ssize_t r = tfs_read(f, buffer, sizeof(buffer) - 1);
     assert(r == strlen(args.content_file));
     assert(!memcmp(buffer, args.content_file, strlen(args.content_file)));
-    if(single != 1) assert(tfs_unlink(args.path_copied_file) != -1);
-
-}
-
-void fun_loop(size_t num, copy_args_t args [], pthread_t threads [],  void (*fun)(copy_args_t, pthread_t)) { 
-    for (size_t i = 0; i < num; i++)
-        (*fun)(args[i], threads[i]);
-    
+    //assert(tfs_unlink(args.path_copied_file) != -1);
 }
 
 int run_copy_from_external_threads() {
     memset(buffer, 0, 1024);
-    pthread_t threads [NUMBER_OF_THREADS];
-    copy_args_t args [NUMBER_OF_THREADS] = { 
+    pthread_t threads_1 [NUMBER_OF_THREADS];
+    copy_args_t args_1 [NUMBER_OF_THREADS] = { 
         create_args(path_file1, path_copied_file1, contents_file1),
         create_args(path_file2, path_copied_file2, contents_file2),
         create_args(path_file3, path_copied_file3, contents_file3),
     };
 
-    init_threads(threads, (void*)thread_copy_from_external, NUMBER_OF_THREADS, args);
+    init_threads(threads_1, (void*)thread_copy_from_external, args_1);
+    for(int i = 0; i < NUMBER_OF_THREADS; i++) {
+        assert_loop(args_1[i]);
+    }
+
     
-    assert_loop(args, NUMBER_OF_THREADS, 0);
+    /**
+     *  TODO: fix copy_from_external_threads to paths already filled
+    memset(buffer, 0, 1024);
+    pthread_t threads_2 [NUMBER_OF_THREADS];
+      copy_args_t args_2 [NUMBER_OF_THREADS] = {
+        create_args(path_file1, path_copied_file1, contents_file1),
+        create_args(path_file1, path_copied_file2, contents_file1),
+        create_args(path_file1, path_copied_file3, contents_file1),
+    };
 
-    copy_args_t single = create_args(path_file1, path_copied_file1, contents_file1);
-    pthread_t new_threads [NUMBER_OF_THREADS];
-
-    init_threads(new_threads, (void*)thread_copy_from_external, NUMBER_OF_THREADS, single
-
+    init_threads(threads_2, (void*)thread_copy_from_external, NUMBER_OF_THREADS, args_2);
+    for(int i = 0; i < NUMBER_OF_THREADS; i++) {
+        assert_loop(args_1[i]);
+    }
+    */
 
 
     return 0;
@@ -113,7 +118,8 @@ int main() {
     
     assert(run_copy_from_external_threads() != -1);
 
-    printf("Successful test.\n");
+    assert(tfs_destroy() != -1);
     
-
+    printf("Successful test.\n");
+    return 0;
 }

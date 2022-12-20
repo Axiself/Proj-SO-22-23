@@ -13,6 +13,7 @@ typedef struct {
     size_t max_open_files_count;
 
     size_t block_size;
+    size_t thread_flag; // added to not init locks when threads not in use
 } tfs_params;
 
 /**

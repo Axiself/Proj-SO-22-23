@@ -13,71 +13,118 @@
 
 #define NUMBER_OF_THREADS (4)
 
-uint8_t const file_contents[] = "AAA!";
+char const file_contents[] = "test_file_threading";
 char const target_path1[] = "/f1";
 char const link_path1[] = "/l1";
 char const target_path2[] = "/f2";
 char const link_path2[] = "/l2";
-char *str_ext_file =
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! BBB! "
-        "BBB! BBB! BBB! BBB! BBB! ";
-char *path_copied_file = "/f1";
-char *path_src = "tests/file_to_copy_over512.txt";
-char buffer[600];
+char const hard_path1[] = "/h1";
+char const hard_path2[] = "/h2";
 
-int m = 0;
+char *path_src = "tests/file_thread_test.txt";
+
+void assert_file_contents(char const *path, char const * file) {
+    int f = tfs_open(path, 0);
+    assert(f != -1);
+
+    uint8_t buffer[sizeof(file)];
+    assert(tfs_read(f, buffer, sizeof(buffer)) == sizeof(buffer));
+    assert(memcmp(buffer, file, sizeof(buffer)) == 0);
+
+    assert(tfs_close(f) != -1);
+}
+
+void assert_empty_file(char const *path, char const *file) {
+    int f = tfs_open(path, 0);
+    assert(f != -1);
+
+    uint8_t buffer[sizeof(file)];
+    assert(tfs_read(f, buffer, sizeof(buffer)) == 0);
+
+    assert(tfs_close(f) != -1);
+}
+
+void write_contents(char const *path, char const *file) {
+    int f = tfs_open(path, 0);
+    assert(f != -1);
+    assert(tfs_write(f, file, sizeof(file)) == sizeof(file));
+    assert(tfs_close(f) != -1);
+}
+
 
 /**
  * TODO: Change all tests
 */
 
-int test1() {
-    for (int i = 0; i < 100000000; i++) { 
-        m = m +1;
-        //printf("test 1-> %d\n", m);
-    }
-    return 0;
+void symlink_test() {
+    // Write to symlink and read original file
+
+    assert_empty_file(target_path1, file_contents); // sanity check
+    
+    assert(tfs_sym_link(target_path1, link_path1) != -1);
+    
+    assert_empty_file(link_path1, file_contents);
+
+    write_contents(link_path1, file_contents);
+    assert_file_contents(target_path1, file_contents);
+
+    // Write to original file and read through symlink
+    
+    write_contents(target_path2, file_contents);
+    assert_file_contents(target_path2, file_contents); // sanity check
+
+    assert(tfs_sym_link(target_path2, link_path2) != -1);
+    assert_file_contents(link_path2, file_contents);
+
+    printf(" ---> Symlink_test = %ld\n", pthread_self()); //get current thread id
+
 }
 
-int test2() {
-    for (int i = 0; i < 1000; i++) { 
-        m++;
-        printf("test 2-> %d\n", m);
-    }
-    return 0;
+void hardlink_test() {
+    // try hard link with soft link from symlink_test
+    assert(tfs_link(link_path1, hard_path1) != 0);
+    assert(tfs_link(target_path1, hard_path1) != -1);
+
+    assert(tfs_unlink(hard_path1) != -1);
+    assert(tfs_unlink(hard_path2) != 0);
+
+    assert(tfs_link(target_path2, hard_path2) != -1);
+
+    //fails here when it shouldn't
+
+
+    assert_file_contents(hard_path2, file_contents);
+    printf(" ---> Hardlink_test = %ld\n", pthread_self()); //get current thread id
+    
 }
 
-int test3() {
-    for (int i = 0; i < 1000; i++) { 
-        m++;
-        printf("test 3-> %d\n", m);
-    }
-    return 0;
+void copy_test() {
+     printf(" ---> Copy_test = %ld\n", pthread_self()); //get current thread id
 }
 
-int test4() {
-    for (int i = 0; i < 1000; i++) { 
-        m++;
-        printf("test 4-> %d\n", m);
-    }
-    return 0;
+void general_test() {
+    printf(" ---> General_test = %ld\n", pthread_self()); //get current thread id
 }
 
 /**
  * Testing 4 total threads
 */
-int (*funcs[4])(int) = { test1, test2, test3, test4 };
+void (*funcs[4])(int) = { symlink_test, hardlink_test, copy_test, general_test };
+
+void init_files() {
+    int f = tfs_open(target_path1, TFS_O_CREAT);
+    assert(f != -1);
+    assert(tfs_close(f) != -1);
+
+    f = tfs_open(target_path2, TFS_O_CREAT);
+    assert(f != -1);
+    assert(tfs_close(f) != -1);
+}
 
 int run_thread_tests(fs_thread_t * fs_thread) { 
 
     for (int i = 0; i < fs_thread->n_threads; i++) { 
-        create_fs_thread(fs_thread, funcs[0]);
+        create_fs_thread(fs_thread, funcs[i%4]);
     }
 
     for (int i = 0; i < fs_thread->n_threads; i++) { 
@@ -88,13 +135,17 @@ int run_thread_tests(fs_thread_t * fs_thread) {
 }
 
 int main() {
-    fs_thread_t * fs_thread = malloc(sizeof(fs_thread_t) + NUMBER_OF_THREADS*sizeof(pthread_t));
-    if(init_fs_thread(fs_thread, NUMBER_OF_THREADS) == -1) return -1;
+    assert(tfs_init(NULL) != -1);
 
-    if(run_thread_tests(fs_thread) != 0) return -1;
+    init_files();
+    fs_thread_t * fs_thread = init_fs_thread(NUMBER_OF_THREADS);
 
-    printf("%d", m);
+    assert(run_thread_tests(fs_thread) != -1);
 
     destroy_fs_thread(fs_thread);
+    
+    assert(tfs_destroy() != -1);
+
+    printf("Successful test.");
     return 0;
 }

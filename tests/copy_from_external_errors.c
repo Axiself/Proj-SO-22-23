@@ -18,7 +18,8 @@ int main() {
     assert(tfs_copy_from_external_fs("./unexistent", path1) == -1);
 
     // TODO: add more failure scenarios
-
+    assert(tfs_destroy() != -1);
+    
     printf("Successful test.\n");
 
     return 0;
