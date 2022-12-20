@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include "fs/fs_thread.h"
 #include <assert.h>
 #include <stdint.h>
 
@@ -159,6 +158,6 @@ int main() {
 
     assert(tfs_destroy() != -1);
     printf("Successful test.\n");
-    
+
     return 0;
 }

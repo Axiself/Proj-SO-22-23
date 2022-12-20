@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include "fs/fs_thread.h"
 #include <assert.h>
 #include <stdint.h>
 
@@ -92,9 +91,6 @@ int run_copy_from_external_threads() {
         assert_loop(args_1[i]);
     }
 
-    
-    /**
-     *  TODO: fix copy_from_external_threads to paths already filled
     memset(buffer, 0, 1024);
     pthread_t threads_2 [NUMBER_OF_THREADS];
       copy_args_t args_2 [NUMBER_OF_THREADS] = {
@@ -103,11 +99,10 @@ int run_copy_from_external_threads() {
         create_args(path_file1, path_copied_file3, contents_file1),
     };
 
-    init_threads(threads_2, (void*)thread_copy_from_external, NUMBER_OF_THREADS, args_2);
+    init_threads(threads_2, (void*)thread_copy_from_external, args_2);
     for(int i = 0; i < NUMBER_OF_THREADS; i++) {
-        assert_loop(args_1[i]);
+        assert_loop(args_2[i]);
     }
-    */
 
 
     return 0;

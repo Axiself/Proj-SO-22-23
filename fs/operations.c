@@ -117,13 +117,16 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
             inum = tfs_lookup(inode->name, root_dir_inode);
             if (inum == -1) {
                 if(mode & TFS_O_CREAT) {
-                    inode = inode_get(tfs_open(inode->name, TFS_O_CREAT));
+                    inum = tfs_open(inode->name, TFS_O_CREAT);
+                    inode = inode_get(inum);
+                    return inum;
                 }
                 return -1;
             }
-            inode = inode_get(inum);
             if (inode->flag == SOFT_LINK_FLAG) 
                 inode = inode_get(tfs_open(inode->name, mode));
+            else
+                inode = inode_get(inum);
         }
 
         // Truncate (if requested)
@@ -346,16 +349,18 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 
     size_t block = tfs_default_params().block_size;
 
-    int dest = tfs_open(dest_path, TFS_O_CREAT);
+
+    
+    int dest = tfs_open(dest_path, TFS_O_CREAT | TFS_O_TRUNC);
     if(dest == -1) return -1;
     char buffer[block];
     memset(buffer, 0, block);
 
+    int flag = 0;
+    if(tfs_write(dest, &buffer, fread(&buffer, sizeof(char), block-1, file)) == -1)  flag = 1;
     
-    if(tfs_write(dest, &buffer, fread(&buffer, sizeof(char), block-1, file)) == -1) return -1;
-    
-    tfs_close(dest);
-    fclose(file);
+    if(tfs_close(dest) != 0 || fclose(file) != 0) return -1;
+    if(flag) return -1;
 
     return 0;
 }

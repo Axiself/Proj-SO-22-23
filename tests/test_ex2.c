@@ -15,8 +15,6 @@ char const link_path4[] = "/l4";
 char const invalid_path[] = "/";
 
 void assert_contents_ok(char const *path) {
-    printf("ok - %s\n", path);
-
     int f = tfs_open(path, 0);
     assert(f != -1);
 
@@ -25,13 +23,9 @@ void assert_contents_ok(char const *path) {
     assert(memcmp(buffer, ext_file, sizeof(buffer)) == 0);
 
     assert(tfs_close(f) != -1);
-
-    printf("end check\n");
 }
 
 void assert_empty_file(char const *path) {
-    printf("empty - %s\n", path);
-
     int f = tfs_open(path, 0);
     assert(f != -1);
 
@@ -39,8 +33,6 @@ void assert_empty_file(char const *path) {
     assert(tfs_read(f, buffer, sizeof(buffer)) == 0);
 
     assert(tfs_close(f) != -1);
-
-    printf("end check\n");
 }
 
 void write_contents(char const *path) {
