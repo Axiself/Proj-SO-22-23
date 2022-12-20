@@ -28,7 +28,9 @@ static allocation_state_t *free_blocks;
  */
 static open_file_entry_t *open_file_table;
 static allocation_state_t *free_open_file_entries;
+
 static pthread_mutex_t open_file_mutex;
+static pthread_mutex_t block_alloc_mutex;
 
 // Convenience macros
 #define INODE_TABLE_SIZE (fs_params.max_inode_count)
@@ -102,6 +104,7 @@ int state_init(tfs_params params) {
     }
 
     pthread_mutex_init(&open_file_mutex, NULL);
+    pthread_mutex_init(&block_alloc_mutex, NULL);
 
     inode_table = malloc(INODE_TABLE_SIZE * sizeof(inode_t));
     freeinode_ts = malloc(INODE_TABLE_SIZE * sizeof(allocation_state_t));
@@ -152,7 +155,7 @@ int state_destroy(void) {
     free_open_file_entries = NULL;
 
     pthread_mutex_destroy(&open_file_mutex);
-
+    pthread_mutex_destroy(&block_alloc_mutex);
     return 0;
 }
 
@@ -286,7 +289,10 @@ inode_t *inode_get(int inumber) {
     ALWAYS_ASSERT(valid_inumber(inumber), "inode_get: invalid inumber");
 
     insert_delay(); // simulate storage access delay to inode
-    return &inode_table[inumber];
+    pthread_mutex_lock(&open_file_mutex);
+    inode_t * res = &inode_table[inumber];
+    pthread_mutex_unlock(&open_file_mutex);
+    return res;
 }
 
 /**
@@ -423,7 +429,7 @@ int find_in_dir(inode_t const *inode, char const *sub_name) {
  *   - No free data blocks.
  */
 int data_block_alloc(void) {
-    pthread_mutex_lock(&open_file_mutex);
+    pthread_mutex_lock(&block_alloc_mutex);
     for (size_t i = 0; i < DATA_BLOCKS; i++) {
         if (i * sizeof(allocation_state_t) % BLOCK_SIZE == 0) {
             insert_delay(); // simulate storage access delay to free_blocks
@@ -431,11 +437,11 @@ int data_block_alloc(void) {
 
         if (free_blocks[i] == FREE) {
             free_blocks[i] = TAKEN;
-            pthread_mutex_unlock(&open_file_mutex);
+            pthread_mutex_unlock(&block_alloc_mutex);
             return (int)i;
         }
     }
-    pthread_mutex_unlock(&open_file_mutex);
+    pthread_mutex_unlock(&block_alloc_mutex);
     return -1;
 }
 
@@ -450,8 +456,9 @@ void data_block_free(int block_number) {
                   "data_block_free: invalid block number");
 
     insert_delay(); // simulate storage access delay to free_blocks
-
+    pthread_mutex_lock(&block_alloc_mutex);
     free_blocks[block_number] = FREE;
+    pthread_mutex_unlock(&block_alloc_mutex);
 }
 
 /**
@@ -467,7 +474,10 @@ void *data_block_get(int block_number) {
                   "data_block_get: invalid block number");
 
     insert_delay(); // simulate storage access delay to block
-    return &fs_data[(size_t)block_number * BLOCK_SIZE];
+    pthread_mutex_lock(&block_alloc_mutex);
+    void * res = &fs_data[(size_t)block_number * BLOCK_SIZE];
+    pthread_mutex_unlock(&block_alloc_mutex);
+    return res;
 }
 
 /**
@@ -509,8 +519,9 @@ void remove_from_open_file_table(int fhandle) {
 
     ALWAYS_ASSERT(free_open_file_entries[fhandle] == TAKEN,
                   "remove_from_open_file_table: file handle must be taken");
-
+    pthread_mutex_lock(&open_file_mutex);
     free_open_file_entries[fhandle] = FREE;
+    pthread_mutex_unlock(&open_file_mutex);
 }
 
 /**
@@ -530,6 +541,8 @@ open_file_entry_t *get_open_file_entry(int fhandle) {
     if (free_open_file_entries[fhandle] != TAKEN) {
         return NULL;
     }
-
-    return &open_file_table[fhandle];
+    pthread_mutex_lock(&open_file_mutex);
+    open_file_entry_t * res = &open_file_table[fhandle];
+    pthread_mutex_unlock(&open_file_mutex);
+    return res;
 }

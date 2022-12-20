@@ -13,10 +13,11 @@
 #define SOFT_LINK_FLAG  (1)
 #define MAX_INODE_COUNT (64)
 
-pthread_mutex_t operations_rwlock[MAX_INODE_COUNT];
+pthread_mutex_t operations_mutex[MAX_INODE_COUNT];
+pthread_mutex_t open_mutex;
 
 /**
- * Index to root_dir is always 0. operations_rwlock[0] only for root_dir
+ * Index to root_dir is always 0. operations_mutex[0] only for root_dir
 */
 
 tfs_params tfs_default_params() {
@@ -25,7 +26,6 @@ tfs_params tfs_default_params() {
         .max_block_count = 1024,
         .max_open_files_count = 16,
         .block_size = 1024,
-        .thread_flag = 0,       // default state doesnt use pthread locks 
     };
     return params;
 }
@@ -47,11 +47,12 @@ int tfs_init(tfs_params const *params_ptr) {
     if (root != ROOT_DIR_INUM) {
         return -1;
     }
-    if (params.thread_flag == 1)
-        for (int i = 0; i < MAX_INODE_COUNT; i++) { 
-            if (pthread_mutex_init(&(operations_rwlock[i]), NULL) != 0)
-                return -1;
-        }
+
+    for (int i = 0; i < MAX_INODE_COUNT; i++) { 
+        if (pthread_mutex_init(&(operations_mutex[i]), NULL) != 0)
+            return -1;
+    }
+    if(pthread_mutex_init(&open_mutex, NULL) != 0) return -1;
     
 
     return 0;
@@ -61,10 +62,11 @@ int tfs_destroy() {
     if (state_destroy() != 0) {
         return -1;
     }
-    if (tfs_default_params().thread_flag == 1)
-        for (int i = 0; i < MAX_INODE_COUNT; i++) {
-            if(pthread_mutex_destroy(&operations_rwlock[i]) != 0) return -1;
-        }
+    
+    for (int i = 0; i < MAX_INODE_COUNT; i++) {
+        if(pthread_mutex_destroy(&operations_mutex[i]) != 0) return -1;
+    }
+    if(pthread_mutex_destroy(&open_mutex) != 0) return -1;
 
     return 0;
 }
@@ -105,13 +107,13 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
                   "tfs_open: root dir inode must exist");
     int inum = tfs_lookup(name, root_dir_inode);
     size_t offset;
-
+    
     if (inum >= 0) {
         // The file already exists
         inode_t *inode = inode_get(inum);
         ALWAYS_ASSERT(inode != NULL,
                       "tfs_open: directory files must have an inode");
-
+        
         // Soft link check
         if (inode->flag == SOFT_LINK_FLAG) { 
             inum = tfs_lookup(inode->name, root_dir_inode);
@@ -119,6 +121,7 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
                 if(mode & TFS_O_CREAT) {
                     inum = tfs_open(inode->name, TFS_O_CREAT);
                     inode = inode_get(inum);
+                
                     return inum;
                 }
                 return -1;
@@ -128,7 +131,7 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
             else
                 inode = inode_get(inum);
         }
-
+        pthread_mutex_lock(&open_mutex);
         // Truncate (if requested)
         if (mode & TFS_O_TRUNC) {
             if (inode->i_size > 0) {
@@ -136,11 +139,13 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
                 inode->i_size = 0;
             }
         }
+        pthread_mutex_unlock(&open_mutex);
         // Determine initial offset
         if (mode & TFS_O_APPEND) {
             offset = inode->i_size;
         } else {
             offset = 0;
+            
         }
     } else if (mode & TFS_O_CREAT) {
         // The file does not exist; the mode specified that it should be created
@@ -162,7 +167,7 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
     }
     // Finally, add entry to the open file table and return the corresponding
     // handle
-    return add_to_open_file_table(inum, offset);
+    return add_to_open_file_table(inum, offset); 
     // Note: for simplification, if file was created with TFS_O_CREAT and there
     // is an error adding an entry to the open file table, the file is not
     // opened but it remains created
@@ -180,19 +185,19 @@ int tfs_sym_link(char const *target, char const *link_name) {
     int soft_index = inode_create(T_DIRECTORY);
 
     if(soft_index < 0) return -1;
-    pthread_mutex_lock(&(operations_rwlock[soft_index]));
+    pthread_mutex_lock(&(operations_mutex[soft_index]));
     inode_t * soft_link = inode_get(soft_index);
 
     if (add_dir_entry(root_dir_inode, link_name + 1, soft_index) == -1) {
         inode_delete(soft_index);
-        pthread_mutex_unlock(&(operations_rwlock[soft_index]));
+        pthread_mutex_unlock(&(operations_mutex[soft_index]));
         return -1; // no space in directory
     }
 
     soft_link->flag = SOFT_LINK_FLAG;
     soft_link->name = malloc(sizeof(char *));
     memcpy(soft_link->name, target, strlen(target) + 1);
-    pthread_mutex_unlock(&(operations_rwlock[soft_index]));
+    pthread_mutex_unlock(&(operations_mutex[soft_index]));
     return 0;
 }
 
@@ -205,23 +210,23 @@ int tfs_link(char const *target, char const *link_name) {
     int idx = tfs_lookup(target, root_dir_inode);
     if(idx < 0) return -1;
 
-    pthread_mutex_lock(&(operations_rwlock[idx]));
+    pthread_mutex_lock(&(operations_mutex[idx]));
 
     inode_t * targ = inode_get(idx);
 
     if (targ->flag == SOFT_LINK_FLAG) {
-        pthread_mutex_unlock(&(operations_rwlock[idx]));
+        pthread_mutex_unlock(&(operations_mutex[idx]));
         return -1;
     }
 
     if (add_dir_entry(root_dir_inode, link_name + 1, idx) == -1){
-        pthread_mutex_unlock(&(operations_rwlock[idx]));
+        pthread_mutex_unlock(&(operations_mutex[idx]));
         return -1; // no space in directory
     }
 
     targ->flag = HARD_LINK_FLAG; // not necessary
     targ->hard_link_count++;
-    pthread_mutex_unlock(&(operations_rwlock[idx]));
+    pthread_mutex_unlock(&(operations_mutex[idx]));
     return 0;
 }
 
@@ -250,7 +255,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
     // Determine how many bytes to write
     size_t block_size = state_block_size();
-    pthread_mutex_lock(&(operations_rwlock[idx]));
+    pthread_mutex_lock(&(operations_mutex[idx]));
     if (to_write + file->of_offset > block_size) {
         to_write = block_size - file->of_offset;
     }
@@ -260,7 +265,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             // If empty file, allocate new block
             int bnum = data_block_alloc();
             if (bnum == -1) {
-                pthread_mutex_unlock(&(operations_rwlock[idx]));
+                pthread_mutex_unlock(&(operations_mutex[idx]));
                 return -1; // no space
             }
 
@@ -279,7 +284,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             inode->i_size = file->of_offset;
         }
     }
-    pthread_mutex_unlock(&(operations_rwlock[idx]));
+    pthread_mutex_unlock(&(operations_mutex[idx]));
     return (ssize_t)to_write;
 }
 
@@ -293,7 +298,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     // From the open file table entry, we get the inode
     inode_t const *inode = inode_get(idx);
     ALWAYS_ASSERT(inode != NULL, "tfs_read: inode of open file deleted");
-    pthread_mutex_lock(&(operations_rwlock[idx]));
+    pthread_mutex_lock(&(operations_mutex[idx]));
     // Determine how many bytes to read
     size_t to_read = inode->i_size - file->of_offset;
     if (to_read > len) {
@@ -309,7 +314,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         // The offset associated with the file handle is incremented accordingly
         file->of_offset += to_read;
     }
-    pthread_mutex_unlock(&(operations_rwlock[idx]));
+    pthread_mutex_unlock(&(operations_mutex[idx]));
     return (ssize_t)to_read;
 }
 
@@ -321,7 +326,7 @@ int tfs_unlink(char const *target) {
     int idx = tfs_lookup(target, root_dir_inode);
     
     if (idx < 0) return -1;
-    pthread_mutex_lock(&(operations_rwlock[idx]));
+    pthread_mutex_lock(&(operations_mutex[idx]));
     inode_t * node = inode_get(idx);
 
     if (node->flag == SOFT_LINK_FLAG) {
@@ -337,7 +342,7 @@ int tfs_unlink(char const *target) {
         node->hard_link_count--;
         //return clear_dir_entry(root_dir_inode, target + 1);
     }
-    pthread_mutex_unlock(&(operations_rwlock[idx]));
+    pthread_mutex_unlock(&(operations_mutex[idx]));
     return clear_dir_entry(root_dir_inode, target + 1);
 }
 

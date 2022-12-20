@@ -78,29 +78,28 @@ void assert_loop(copy_args_t args) {
 }
 
 int run_copy_from_external_threads() {
-    memset(buffer, 0, 1024);
     pthread_t threads_1 [NUMBER_OF_THREADS];
     copy_args_t args_1 [NUMBER_OF_THREADS] = { 
         create_args(path_file1, path_copied_file1, contents_file1),
         create_args(path_file2, path_copied_file2, contents_file2),
         create_args(path_file3, path_copied_file3, contents_file3),
     };
-
+    
     init_threads(threads_1, (void*)thread_copy_from_external, args_1);
     for(int i = 0; i < NUMBER_OF_THREADS; i++) {
+        memset(buffer, 0, 1024);
         assert_loop(args_1[i]);
     }
-
-    memset(buffer, 0, 1024);
     pthread_t threads_2 [NUMBER_OF_THREADS];
       copy_args_t args_2 [NUMBER_OF_THREADS] = {
-        create_args(path_file1, path_copied_file1, contents_file1),
-        create_args(path_file1, path_copied_file2, contents_file1),
+        create_args(path_file1, path_copied_file3, contents_file1),
+        create_args(path_file1, path_copied_file3, contents_file1),
         create_args(path_file1, path_copied_file3, contents_file1),
     };
 
     init_threads(threads_2, (void*)thread_copy_from_external, args_2);
     for(int i = 0; i < NUMBER_OF_THREADS; i++) {
+        memset(buffer, 0, 1024);
         assert_loop(args_2[i]);
     }
 
